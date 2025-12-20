@@ -1,0 +1,180 @@
+name: Build Compatible Mesa-Git (AMD/Intel + LLVM 21)
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-mesa:
+    runs-on: ubuntu-latest
+    env:
+      CC: clang-21
+      LLVM_CONFIG: /usr/lib/llvm-21/bin/llvm-config
+      PKG_CONFIG_PATH: /usr/local/lib/pkgconfig:/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 21 (Latest Snapshot)
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          # Installs LLVM 21, Clang 21, and libs
+          sudo ./llvm.sh 21 all
+
+          # Verify it installed
+          $CC --version
+
+      - name: Build SPIRV-LLVM-Translator
+        run: |
+          git clone --depth 1 --branch v21.1.3 https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
+          cd SPIRV-LLVM-Translator
+
+          mkdir build
+          cd build
+
+          # Point LLVM_DIR to where llvm.sh installed the cmake config
+          cmake .. \
+            -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_SPIRV_INCLUDE_TESTS=OFF
+
+          make -j$(nproc)
+          sudo make install
+
+          # Verify
+          pkg-config --modversion LLVMSPIRVLib
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build bison flex cmake \
+            libdrm-dev libx11-dev libxxf86vm-dev libxrandr-dev \
+            libxshmfence-dev libwayland-dev libclc-21-dev\
+            libxcb-glx0-dev libxcb-shm0-dev libxcb-dri3-dev libxcb-present-dev \
+            libxcb-randr0-dev libxcb-xfixes0-dev libxcb-dri2-0-dev libx11-xcb-dev \
+            libzstd-dev libexpat1-dev libelf-dev \
+            libxml2-dev python3-mako pkg-config libvulkan-dev \
+            glslang-tools libva-dev libglvnd-dev patchelf \
+            libunwind-dev liblua5.4-dev libffi-dev libexpat1-dev
+
+      - name: Install Latest Meson Globally
+        run: sudo pip3 install meson mako
+
+      - name: Setup Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          source $HOME/.cargo/env
+          cargo install bindgen-cli cbindgen
+
+      - name: Clone Mesa
+        run: git clone --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git
+
+      - name: Get Mesa commit hash
+        run: |
+          cd mesa
+
+          # Trust this directory.
+          git config --global --add safe.directory $(pwd)
+
+          # Capture the hash
+          MESA_COMMIT=$(git rev-parse --short HEAD)
+
+          if [ -z "$MESA_COMMIT" ]; then
+            echo "::error::Could not determine git commit hash! Check if the clone step succeeded."
+            exit 1
+          fi
+
+          echo "MESA_COMMIT=$MESA_COMMIT" >> $GITHUB_ENV
+          echo "Successfully detected Mesa commit: $MESA_COMMIT"
+
+      - name: Compile Wayland manually
+        run: |
+          wget https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.24.0/downloads/wayland-1.24.0.tar.xz
+          wget https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/1.41/downloads/wayland-protocols-1.41.tar.xz
+
+          tar -xf wayland-1.24.0.tar.xz
+          cd wayland-1.24.0
+          # Prefix=/usr overwrites system libs so we don't need to mess with paths
+          meson setup build --prefix=/usr -Ddocumentation=false -Dtests=false
+          ninja -C build
+          sudo ninja -C build install
+          cd ..
+
+          tar -xf wayland-protocols-1.41.tar.xz
+          cd wayland-protocols-1.41
+          meson setup build --prefix=/usr -Dtests=false
+          ninja -C build
+          sudo ninja -C build install
+          cd ..
+
+      - name: Configure Meson
+        run: |
+          cd mesa
+          meson setup build/ \
+            -Dprefix=$(pwd)/install \
+            -Dplatforms=x11,wayland \
+            -Dgallium-drivers=radeonsi,zink,llvmpipe,iris \
+            -Dvulkan-drivers=amd,intel \
+            -Dbuildtype=release \
+            -Dllvm=enabled \
+            -Dshared-llvm=enabled \
+            -Dgallium-rusticl=false \
+            -Dvideo-codecs=all_free \
+            -Dwayland:documentation=false
+
+      - name: Build and Install
+        run: |
+          cd mesa
+          ninja -C build/ install
+
+      - name: Bundle Dependencies
+        run: |
+          cd mesa/install
+          mkdir -p lib/bundled
+
+          WANTED="libLLVM|libdrm|libelf|libzstd|libunwind|libexpat|libedit|libxml2"
+
+          DRIVERS=$(find . -name "libvulkan_*.so" -o -name "libGLX_mesa.so" -o -name "libEGL_mesa.so")
+
+          echo "Scanning dependencies for: $DRIVERS"
+
+          for driver in $DRIVERS; do
+            ldd "$driver" | grep -E "$WANTED" | awk '{print $3}' | sort | uniq | while read lib_path; do
+              if [ -f "$lib_path" ]; then
+                cp -L -n "$lib_path" "lib/bundled/"
+                echo "Bundling: $lib_path"
+              fi
+            done
+          patchelf --set-rpath '$ORIGIN/bundled:$ORIGIN' "$driver"
+          done
+
+      - name: Prepare JSONs and bundled libraries for artifacting
+        run: |
+          # Patch JSONs to remove absolute paths
+          sed -i 's|"library_path":.*|"library_path": "libvulkan_radeon.so"|' mesa/install/share/vulkan/icd.d/radeon_icd.x86_64.json || true
+          sed -i 's|"library_path":.*|"library_path": "libvulkan_intel.so"|' mesa/install/share/vulkan/icd.d/intel_icd.x86_64.json || true
+
+      - name: Remove libicuuc dependency from libxml2
+        run: |
+          patchelf --remove-needed libicuuc.so.74 mesa/install/lib/bundled/libxml2.so.2
+
+      - name: Package Artifact
+        run: |
+          cd mesa/install
+          tar -cJvf ../../mesa-git-${{ env.MESA_COMMIT }}.tar.xz .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: mesa-git-${{ env.MESA_COMMIT }}
+          name: mesa-git-${{ env.MESA_COMMIT }}
+          files: mesa-git-${{ env.MESA_COMMIT }}.tar.xz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
