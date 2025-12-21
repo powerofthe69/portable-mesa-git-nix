@@ -30,15 +30,17 @@ jobs:
         run: |
           TAG="mesa-git-${{ steps.hash.outputs.commit }}"
           echo "Checking if release '$TAG' exists..."
+          REMOTE_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
 
-          # 'gh release view' exits with 0 if found, 1 if not.
-          if gh release view "$TAG" > /dev/null 2>&1; then
-            echo "Release found. Stopping workflow."
+          # git ls-remote returns exit code 0 if found, 2 if not found
+          if git ls-remote --exit-code --tags "$REMOTE_URL" "refs/tags/$TAG" > /dev/null; then
+            echo "::notice::Tag $TAG already exists. Skipping build."
             echo "exists=true" >> $GITHUB_OUTPUT
           else
-            echo "Release not found. Proceeding to build."
+            echo "Tag not found. Proceeding to build."
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
+
   build-mesa:
     needs: check-release
     if: needs.check-release.outputs.exists != 'true'
