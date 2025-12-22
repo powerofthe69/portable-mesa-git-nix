@@ -141,6 +141,7 @@ jobs:
             -Dvulkan-drivers=amd,intel \
             -Dbuildtype=release \
             -Dllvm=enabled \
+            -Dvulkan-layers=amd-anti-lag \
             -Dshared-llvm=enabled \
             -Dgallium-rusticl=false \
             -Dvideo-codecs=all \
