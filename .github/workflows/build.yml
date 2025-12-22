@@ -43,7 +43,7 @@ jobs:
 
   build-mesa:
     needs: check-release
-    if: needs.check-release.outputs.exists != 'true'
+    if: needs.check-release.outputs.exists != 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
       MESA_COMMIT: ${{ needs.check-release.outputs.commit }}
