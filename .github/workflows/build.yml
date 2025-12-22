@@ -156,7 +156,7 @@ jobs:
           cd mesa/install
           mkdir -p lib/bundled
 
-          WANTED="libLLVM|libdrm|libelf|libzstd|libunwind|libexpat|libedit|libxml2"
+          WANTED="libLLVM|libdrm|libelf|libzstd|libunwind|libexpat|libedit|libxml2|libicu"
 
           DRIVERS=$(find . -name "libvulkan_*.so" -o -name "libGLX_mesa.so" -o -name "libEGL_mesa.so")
 
@@ -177,10 +177,6 @@ jobs:
           # Patch JSONs to remove absolute paths
           sed -i 's|"library_path":.*|"library_path": "libvulkan_radeon.so"|' mesa/install/share/vulkan/icd.d/radeon_icd.x86_64.json || true
           sed -i 's|"library_path":.*|"library_path": "libvulkan_intel.so"|' mesa/install/share/vulkan/icd.d/intel_icd.x86_64.json || true
-
-      - name: Remove libicuuc dependency from libxml2
-        run: |
-          patchelf --remove-needed libicuuc.so.74 mesa/install/lib/bundled/libxml2.so.2
 
       - name: Package Artifact
         run: |
