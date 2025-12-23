@@ -55,6 +55,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install LLVM 21 (Latest Snapshot)
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          # Installs LLVM 21, Clang 21, and libs
+          sudo ./llvm.sh 21 all
+
+          # Verify it installed
+          $CC --version
+
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
@@ -67,16 +77,6 @@ jobs:
             libxml2-dev python3-mako pkg-config libvulkan-dev \
             glslang-tools libva-dev libglvnd-dev patchelf \
             libunwind-dev liblua5.4-dev libffi-dev libexpat1-dev
-
-      - name: Install LLVM 21 (Latest Snapshot)
-        run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          # Installs LLVM 21, Clang 21, and libs
-          sudo ./llvm.sh 21 all
-
-          # Verify it installed
-          $CC --version
 
       - name: Build SPIRV-LLVM-Translator
         run: |
