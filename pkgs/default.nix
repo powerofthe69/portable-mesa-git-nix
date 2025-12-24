@@ -59,7 +59,6 @@ let
 
       nativeBuildInputs = old.nativeBuildInputs ++ [
         wayland-protocols-git
-        pkgs.perl
       ];
 
       # Remove spirv2dxil from postInstall
