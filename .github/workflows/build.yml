@@ -134,7 +134,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: mesa-git-${{ env.MESA_COMMIT }}
-          name: Mesa Git ${{ env.MESA_COMMIT }}
+          name: mesa-git-${{ env.MESA_COMMIT }}
           body: |
             Automated Mesa-git build.
 
