@@ -20,6 +20,9 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
+      - name: Install Dependencies
+        run: nix profile install nixpkgs#nix-prefetch-git nixpkgs#jq
+
       - name: Check for source updates. Build if any source changed.
         id: sources
         run: |
