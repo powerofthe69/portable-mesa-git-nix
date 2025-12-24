@@ -1,4 +1,4 @@
-name: Build Compatible Mesa-Git (AMD/Intel + LLVM 21)
+name: Build "Portable" Mesa-Git (AMD/Intel/NVIDIA + LLVM 21)
 
 on:
   schedule:
@@ -6,193 +6,141 @@ on:
   workflow_dispatch:
 
 jobs:
-  check-release:
+  check-updates:
     runs-on: ubuntu-latest
     outputs:
-      exists: ${{ steps.check.outputs.exists }}
-      commit: ${{ steps.hash.outputs.commit }}
+      should_build: ${{ steps.decide.outputs.should_build }}
+      mesa_rev: ${{ steps.sources.outputs.mesa_rev }}
     steps:
-      - name: Clone Mesa (Shallow)
-        run: git clone --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git
+      - uses: actions/checkout@v4
 
-      - name: Get Mesa commit hash
-        id: hash
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Check for source updates. Build if any source changed.
+        id: sources
         run: |
-          cd mesa
-          COMMIT=$(git rev-parse --short HEAD)
-          echo "Detected Commit: $COMMIT"
-          echo "commit=$COMMIT" >> $GITHUB_OUTPUT
+          cd pkgs
 
-      - name: Check for Existing Release
-        id: check
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="mesa-git-${{ steps.hash.outputs.commit }}"
-          echo "Checking if release '$TAG' exists..."
-          REMOTE_URL="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          # Capture current mesa rev
+          OLD_MESA=$(jq -r '.mesa.rev' ./sources.json)
+          OLD_LIBDRM=$(jq -r '.libdrm.rev' ./sources.json)
+          OLD_WAYLAND=$(jq -r '.["wayland-protocols"].rev' ./sources.json)
 
-          # git ls-remote returns exit code 0 if found, 2 if not found
-          if git ls-remote --exit-code --tags "$REMOTE_URL" "refs/tags/$TAG" > /dev/null; then
-            echo "::notice::Tag $TAG already exists. Skipping build."
-            echo "exists=true" >> $GITHUB_OUTPUT
+          # Run update script
+          bash update.sh
+
+          # Capture new revs
+          NEW_MESA=$(jq -r '.mesa.rev' ./sources.json)
+          NEW_LIBDRM=$(jq -r '.libdrm.rev' ./sources.json)
+          NEW_WAYLAND=$(jq -r '.["wayland-protocols"].rev' ./sources.json)
+
+          # Output mesa rev for tagging
+          echo "mesa_rev=${NEW_MESA:0:7}" >> $GITHUB_OUTPUT
+
+          # Check if any source changed
+          if [ "$OLD_MESA" != "$NEW_MESA" ] || [ "$OLD_LIBDRM" != "$NEW_LIBDRM" ] || [ "$OLD_WAYLAND" != "$NEW_WAYLAND" ]; then
+            echo "sources_changed=true" >> $GITHUB_OUTPUT
           else
-            echo "Tag not found. Proceeding to build."
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "sources_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for nixpkgs updates
+        id: nixpkgs
+        run: |
+          OLD_NIXPKGS=$(jq -r '.nodes.nixpkgs.locked.rev // ""' flake.lock)
+          nix flake update
+          NEW_NIXPKGS=$(jq -r '.nodes.nixpkgs.locked.rev' flake.lock)
+
+          if [ "$OLD_NIXPKGS" != "$NEW_NIXPKGS" ]; then
+            echo "nixpkgs_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "nixpkgs_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload updated files
+        uses: actions/upload-artifact@v4
+        with:
+          name: updated-sources
+          path: |
+            pkgs/sources.json
+            flake.lock
+
+      - name: Decide if build is needed
+        id: decide
+        run: |
+          if [ "${{ steps.sources.outputs.sources_changed }}" == "true" ]; then
+            echo "Sources changed."
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          elif [ "${{ steps.nixpkgs.outputs.nixpkgs_changed }}" == "true" ]; then
+            echo "Nixpkgs changed."
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "No changes detected."
+            echo "should_build=false" >> $GITHUB_OUTPUT
           fi
 
   build-mesa:
-    needs: check-release
-    if: needs.check-release.outputs.exists != 'true' || github.event_name == 'workflow_dispatch'
+    needs: check-updates
+    if: needs.check-updates.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     env:
-      MESA_COMMIT: ${{ needs.check-release.outputs.commit }}
-      CC: gcc
-      CXX: g++
-      LLVM_CONFIG: /usr/lib/llvm-21/bin/llvm-config
-      PKG_CONFIG_PATH: /usr/local/lib/pkgconfig:/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig
+      MESA_COMMIT: ${{ needs.check-updates.outputs.mesa_rev }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM 21 (Latest Snapshot)
+      - name: Download updated sources
+        uses: actions/download-artifact@v4
+        with:
+          name: updated-sources
+          path: .
+
+      - name: Move sources to correct location
         run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          # Installs LLVM 21, Clang 21, and libs
-          sudo ./llvm.sh 21 all
+          mv sources.json pkgs/sources.json 2>/dev/null || true
 
-          # Verify it installed
-          $CC --version
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
 
-      - name: Install Build Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build bison flex cmake \
-            libdrm-dev libx11-dev libxxf86vm-dev libxrandr-dev \
-            libxshmfence-dev libwayland-dev libclc-21-dev\
-            libxcb-glx0-dev libxcb-shm0-dev libxcb-dri3-dev libxcb-present-dev \
-            libxcb-randr0-dev libxcb-xfixes0-dev libxcb-dri2-0-dev libx11-xcb-dev \
-            libzstd-dev libexpat1-dev libelf-dev gcc g++ \
-            libxml2-dev python3-mako pkg-config libvulkan-dev \
-            glslang-tools libva-dev libglvnd-dev patchelf \
-            libunwind-dev liblua5.4-dev libffi-dev libexpat1-dev
-
-      - name: Build SPIRV-LLVM-Translator
-        run: |
-          git clone --depth 1 --branch v21.1.3 https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git
-          cd SPIRV-LLVM-Translator
-
-          mkdir build
-          cd build
-
-          # Point LLVM_DIR to where llvm.sh installed the cmake config
-          cmake .. \
-            -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm \
-            -DCMAKE_INSTALL_PREFIX=/usr/local \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DLLVM_SPIRV_INCLUDE_TESTS=OFF
-
-          make -j$(nproc)
-          sudo make install
-
-          # Verify
-          pkg-config --modversion LLVMSPIRVLib
-
-      - name: Install Latest Meson Globally
-        run: sudo pip3 install meson mako
-
-      - name: Setup Rust
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          source $HOME/.cargo/env
-          cargo install bindgen-cli cbindgen
-
-      - name: Clone Mesa
-        run: git clone --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git
-
-      - name: Compile Wayland manually
-        run: |
-          wget https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.24.0/downloads/wayland-1.24.0.tar.xz
-          wget https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/1.41/downloads/wayland-protocols-1.41.tar.xz
-
-          tar -xf wayland-1.24.0.tar.xz
-          cd wayland-1.24.0
-          # Prefix=/usr overwrites system libs so we don't need to mess with paths
-          meson setup build --prefix=/usr -Ddocumentation=false -Dtests=false
-          ninja -C build
-          sudo ninja -C build install
-          cd ..
-
-          tar -xf wayland-protocols-1.41.tar.xz
-          cd wayland-protocols-1.41
-          meson setup build --prefix=/usr -Dtests=false
-          ninja -C build
-          sudo ninja -C build install
-          cd ..
-
-      - name: Configure Meson
-        run: |
-          cd mesa
-          meson setup build/ \
-            -Dprefix=$(pwd)/install \
-            -Dplatforms=x11,wayland \
-            -Dgallium-drivers=radeonsi,zink,llvmpipe,iris \
-            -Dvulkan-drivers=amd,intel \
-            -Dbuildtype=release \
-            -Dllvm=enabled \
-            -Dvulkan-layers=anti-lag \
-            -Dshared-llvm=enabled \
-            -Dgallium-rusticl=false \
-            -Dvideo-codecs=all \
-            -Dteflon=true \
-            -Dinstall-mesa-clc=true \
-            -Dinstall-precomp-compiler=true \
-            -Dwayland:documentation=false
-
-      - name: Build and Install
-        run: |
-          cd mesa
-          ninja -C build/ install
-
-      - name: Bundle Dependencies
-        run: |
-          cd mesa/install
-          mkdir -p lib/bundled
-
-          WANTED="libLLVM|libedit|libxml2|libicu"
-
-          DRIVERS=$(find . -name "libvulkan_*.so" -o -name "libGLX_mesa.so" -o -name "libEGL_mesa.so")
-
-          echo "Scanning dependencies for: $DRIVERS"
-
-          for driver in $DRIVERS; do
-            ldd "$driver" | grep -E "$WANTED" | awk '{print $3}' | sort | uniq | while read lib_path; do
-              if [ -f "$lib_path" ]; then
-                cp -L -n "$lib_path" "lib/bundled/"
-                echo "Bundling: $lib_path"
-              fi
-            done
-          patchelf --set-rpath '$ORIGIN/bundled:$ORIGIN' "$driver"
-          done
-
-      - name: Prepare JSONs and bundled libraries for artifacting
-        run: |
-          # Patch JSONs to remove absolute paths
-          sed -i 's|"library_path":.*|"library_path": "libvulkan_radeon.so"|' mesa/install/share/vulkan/icd.d/radeon_icd.x86_64.json || true
-          sed -i 's|"library_path":.*|"library_path": "libvulkan_intel.so"|' mesa/install/share/vulkan/icd.d/intel_icd.x86_64.json || true
+      - name: Build Bundle
+        run: nix build .#bundle --out-link bundle-result -L
 
       - name: Package Artifact
         run: |
-          cd mesa/install
-          tar -cJvf ../../mesa-git-${{ env.MESA_COMMIT }}.tar.xz .
+          mkdir -p artifact
+          cp -rL bundle-result/* artifact/
+          cd artifact
+          sed -i 's|\("library_path": "\).*/\([^/]*"\)|\1\2|' share/vulkan/icd.d/*.json
+          tar -cJvf ../mesa-git-${{ env.MESA_COMMIT }}.tar.xz .
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: mesa-git-${{ env.MESA_COMMIT }}
-          name: mesa-git-${{ env.MESA_COMMIT }}
+          name: Mesa Git ${{ env.MESA_COMMIT }}
+          body: |
+            Automated Mesa-git build.
+
+            **Contents:**
+            - 64-bit Mesa (`lib/`)
+            - 32-bit Mesa (`lib32/`)
+            - Vulkan ICDs and layers (`share/`)
+            - Bundled LLVM dependencies (`lib/bundled/`, `lib32/bundled/`)
+
+            **Mesa Commit:** `${{ env.MESA_COMMIT }}`
           files: mesa-git-${{ env.MESA_COMMIT }}.tar.xz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit updated sources
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Automated bump of sources and flake.lock"
+          file_pattern: "pkgs/sources.json flake.lock"

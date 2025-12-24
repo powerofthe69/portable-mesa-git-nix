@@ -1,0 +1,17 @@
+{
+  "mesa": {
+    "url": "https://gitlab.freedesktop.org/mesa/mesa.git",
+    "rev": "7219411f78fc872a175fffb7fc638c24c3484d80",
+    "sha256": "14ag0yq1l1865bx0rq8c5gpvb7nwy7m7s5s3m2wa1jd6j8cync93"
+  },
+  "libdrm": {
+    "url": "https://gitlab.freedesktop.org/mesa/drm.git",
+    "rev": "369990d9660a387f618d0eedc341eb285016243b",
+    "sha256": "08fv3lsyq99j291wz8g9p6965pi1rla28gs9b0gqpq582y697rlh"
+  },
+  "wayland-protocols": {
+    "url": "https://gitlab.freedesktop.org/wayland/wayland-protocols.git",
+    "rev": "a6ac326be335c8914ac8ed8114429f13a0e30f1b",
+    "sha256": "1vs3bys86sr3kv09s6d6jq65cvgp9q8iw4q24smrdm4qdgxsgiql"
+  }
+}
