@@ -190,8 +190,6 @@ let
         libdrm: ${libdrm-src.rev or "unknown"}
         wayland-protocols: ${wayland-protocols-src.rev or "unknown"}
         EOF
-
-            echo "Bundle complete!"
       '';
 
 in
