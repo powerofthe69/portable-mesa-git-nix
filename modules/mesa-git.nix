@@ -19,19 +19,18 @@ in
       description = "Add a boot entry with stable Mesa in case of issues.";
     };
 
-    enableCachix = lib.mkOption {
+    enableCache = lib.mkOption {
       type = lib.types.bool;
       default = true;
-      description = "Add mesa-git Cachix cache to substituters.";
+      description = "Add self-hosted mesa-git cache to substituters.";
     };
   };
 
   config = lib.mkMerge [
-    # Cachix configuration (always applied when module is imported, unless disabled)
-    (lib.mkIf cfg.enableCachix {
+    (lib.mkIf cfg.enableCache {
       nix.settings = {
-        substituters = [ "https://mesa-git.cachix.org" ];
-        trusted-public-keys = [ "mesa-git.cachix.org-1:PMker4ByePMzYKSYgWipawpKDRwg9wLZOwP2sm4zSy0=" ];
+        substituters = [ "https://nix-cache.tokidoki.dev/mesa-git" ];
+        trusted-public-keys = [ "mesa-git:QdQcgcLR80ALQIG0hR0YZaPbbdrBvHy7R+zwMjYWUyw=" ];
       };
     })
 

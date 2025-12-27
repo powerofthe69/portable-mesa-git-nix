@@ -6,9 +6,9 @@
   };
 
   nixConfig = {
-    extra-substituters = [ "https://mesa-git.cachix.org" ];
+    extra-substituters = [ "https://nix-cache.tokidoki.dev/mesa-git" ];
     extra-trusted-public-keys = [
-      "mesa-git.cachix.org-1:PMker4ByePMzYKSYgWipawpKDRwg9wLZOwP2sm4zSy0="
+      "mesa-git:QdQcgcLR80ALQIG0hR0YZaPbbdrBvHy7R+zwMjYWUyw="
     ];
   };
 
