@@ -15,9 +15,6 @@ on:
           - build-nightly
           - promote-to-main
 
-env:
-  CACHIX_CACHE: mesa-git
-
 jobs:
   nightly-build:
     if: github.event.schedule == '0 5 * * *' || inputs.task == 'build-nightly'
@@ -38,18 +35,18 @@ jobs:
             experimental-features = nix-command flakes
             accept-flake-config = true
 
-      - name: Setup Cachix
-        uses: cachix/cachix-action@v15
-        with:
-          name: ${{ env.CACHIX_CACHE }}
-          authToken: ${{ secrets.CACHIX_KEY }}
+      - name: Setup Attic for locally hosted binary cache
+        run: |
+          nix profile install nixpkgs#attic-client
+          attic login local "$ATTIC_SERVER" "${{ secrets.ATTIC_TOKEN }}"
+          attic use $ATTIC_CACHE
 
       - name: Update Sources
         id: update
         run: |
-          cd pkgs
           nix profile install nixpkgs#nix-prefetch-git
           OLD_MESA=$(jq -r '.mesa.rev' sources.json)
+          cd pkgs
           bash update.sh
           NEW_MESA=$(jq -r '.mesa.rev' sources.json)
 
@@ -65,8 +62,9 @@ jobs:
       - name: Build Mesa
         if: steps.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
         run: |
-          # Build and push to Cachix automatically via cachix-action
+          # Build and push to Attic
           nix build .#mesa-git .#mesa32-git -L
+          attic push $ATTIC_CACHE ./result ./result-1
 
       - name: Build & Package Bundle
         if: steps.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
@@ -74,6 +72,7 @@ jobs:
           MESA_REV: ${{ steps.update.outputs.mesa_rev }}
         run: |
           nix build .#bundle --out-link bundle-result -L
+          attic push $ATTIC_CACHE ./bundle-result
 
           mkdir -p artifact && cp -rL bundle-result/* artifact/ && chmod -R +w artifact
 
