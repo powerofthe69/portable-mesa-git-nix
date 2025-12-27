@@ -45,23 +45,23 @@ jobs:
           attic login local $ATTIC_SERVER $ATTIC_TOKEN
           attic use $ATTIC_CACHE
 
-      # - name: Update Sources
-      #   id: update
-      #   run: |
-      #     nix profile add nixpkgs#nix-prefetch-git
-      #     cd pkgs
-      #     OLD_MESA=$(jq -r '.mesa.rev' sources.json)
-      #     bash update.sh
-      #     NEW_MESA=$(jq -r '.mesa.rev' sources.json)
+      - name: Update Sources
+        id: update
+        run: |
+          nix profile add nixpkgs#nix-prefetch-git
+          cd pkgs
+          OLD_MESA=$(jq -r '.mesa.rev' sources.json)
+          bash update.sh
+          NEW_MESA=$(jq -r '.mesa.rev' sources.json)
 
-      #     echo "mesa_rev=${NEW_MESA:0:7}" >> $GITHUB_OUTPUT
+          echo "mesa_rev=${NEW_MESA:0:7}" >> $GITHUB_OUTPUT
 
-      #     if [ "$OLD_MESA" != "$NEW_MESA" ]; then
-      #       echo "changed=true" >> $GITHUB_OUTPUT
-      #       nix flake update --flake ..
-      #     else
-      #       echo "changed=false" >> $GITHUB_OUTPUT
-      #     fi
+          if [ "$OLD_MESA" != "$NEW_MESA" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            nix flake update --flake ..
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Build Mesa
         if: steps.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
@@ -71,48 +71,48 @@ jobs:
           nix build .#bundle --out-link bundle-result -L
           attic push $ATTIC_CACHE ./result ./result-1 ./bundle-result
 
-      # - name: Build & Package Bundle
-      #   if: steps.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
-      #   env:
-      #     MESA_REV: ${{ steps.update.outputs.mesa_rev }}
-      #   run: |
-      #     nix build .#bundle --out-link bundle-result -L
-      #     attic push $ATTIC_CACHE ./bundle-result
+      - name: Build & Package Bundle
+        if: steps.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+        env:
+          MESA_REV: ${{ steps.update.outputs.mesa_rev }}
+        run: |
+          nix build .#bundle --out-link bundle-result -L
+          attic push $ATTIC_CACHE ./bundle-result
 
-      #     mkdir -p artifact && cp -rL bundle-result/* artifact/ && chmod -R +w artifact
+          mkdir -p artifact && cp -rL bundle-result/* artifact/ && chmod -R +w artifact
 
-      #     # Fix ICD paths for portability
-      #     sed -i 's|\("library_path": "\).*/\([^/]*"\)|\1\2|' artifact/share/vulkan/icd.d/*.json
+          # Fix ICD paths for portability
+          sed -i 's|\("library_path": "\).*/\([^/]*"\)|\1\2|' artifact/share/vulkan/icd.d/*.json
 
-      #     tar -cJf "mesa-git-${MESA_REV}.tar.xz" -C artifact .
+          tar -cJf "mesa-git-${MESA_REV}.tar.xz" -C artifact .
 
-      #     echo "Bundle complete & archive created!"
+          echo "Bundle complete & archive created!"
 
-      # - name: Create Release
-      #   if: steps.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
-      #   uses: softprops/action-gh-release@v2
-      #   with:
-      #     tag_name: mesa-git-${{ steps.update.outputs.mesa_rev }}
-      #     name: "mesa-git-${{ steps.update.outputs.mesa_rev }}"
-      #     prerelease: true
-      #     body: |
-      #       **Automated Nightly Build**
+      - name: Create Release
+        if: steps.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mesa-git-${{ steps.update.outputs.mesa_rev }}
+          name: "mesa-git-${{ steps.update.outputs.mesa_rev }}"
+          prerelease: true
+          body: |
+            **Automated Nightly Build**
 
-      #       Contains:
-      #         - 64-bit Mesa (`lib/`)
-      #         - 32-bit Mesa (`lib32/`)
-      #         - Vulkan ICDs and layers (`share/`)
-      #         - Bundled LLVM 21 + dependencies (`lib/bundled/`, `lib32/bundled/`)
+            Contains:
+              - 64-bit Mesa (`lib/`)
+              - 32-bit Mesa (`lib32/`)
+              - Vulkan ICDs and layers (`share/`)
+              - Bundled LLVM 21 + dependencies (`lib/bundled/`, `lib32/bundled/`)
 
-      #     files: mesa-git-${{ steps.update.outputs.mesa_rev }}.tar.xz
+          files: mesa-git-${{ steps.update.outputs.mesa_rev }}.tar.xz
 
-      # - name: Commit Updates
-      #   if: steps.update.outputs.changed == 'true'
-      #   uses: stefanzweifel/git-auto-commit-action@v5
-      #   with:
-      #     commit_message: "nightly: ${{ steps.update.outputs.mesa_rev }}"
-      #     branch: nightly
-      #     file_pattern: "pkgs/sources.json flake.lock"
+      - name: Commit Updates
+        if: steps.update.outputs.changed == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "nightly: ${{ steps.update.outputs.mesa_rev }}"
+          branch: nightly
+          file_pattern: "pkgs/sources.json flake.lock"
 
   promote-to-main:
     if: github.event.schedule == '30 5 * * 3' || inputs.task == 'promote-to-main'
