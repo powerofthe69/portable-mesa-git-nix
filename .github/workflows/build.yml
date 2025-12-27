@@ -63,22 +63,18 @@ jobs:
             echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build Mesa
+      - name: Build Mesa & Push to Attic
         if: steps.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
         run: |
-          # Build and push to Attic
           nix build .#mesa-git .#mesa32-git -L
           nix build .#bundle --out-link bundle-result -L
           attic push $ATTIC_CACHE ./result ./result-1 ./bundle-result
 
-      - name: Build & Package Bundle
+      - name: Package Bundle
         if: steps.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
         env:
           MESA_REV: ${{ steps.update.outputs.mesa_rev }}
         run: |
-          nix build .#bundle --out-link bundle-result -L
-          attic push $ATTIC_CACHE ./bundle-result
-
           mkdir -p artifact && cp -rL bundle-result/* artifact/ && chmod -R +w artifact
 
           # Fix ICD paths for portability
