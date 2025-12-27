@@ -49,8 +49,8 @@ jobs:
         id: update
         run: |
           nix profile install nixpkgs#nix-prefetch-git
-          OLD_MESA=$(jq -r '.mesa.rev' sources.json)
           cd pkgs
+          OLD_MESA=$(jq -r '.mesa.rev' sources.json)
           bash update.sh
           NEW_MESA=$(jq -r '.mesa.rev' sources.json)
 
