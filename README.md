@@ -6,9 +6,52 @@ Add the module: `mesa-git.nixosModules.default`
 
 Enable this overlay: `nixpkgs.overlays = [ mesa-git.overlays.default ];` # module will not work otherwise
 
-Activate the module and enjoy: `drivers.mesa-git.enable = true;`
+Activate the override: `drivers.mesa-git.enable = true;`
 
-It *should* theoretically pick up the Cachix configuration automatically.
+Here is a minimal rendition of what one's `flake.nix` might look like:
+
+```nix
+# flake.nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    mesa-git = {
+      url = "github:powerofthe69/portable-mesa-git-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs = { nixpkgs, mesa-git, ... }: {
+    nixosConfigurations.your-hostname = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ./configuration.nix
+        mesa-git.nixosModules.default
+        {
+          nixpkgs.overlays = [ mesa-git.overlays.default ];
+          drivers.mesa-git.enable = true;
+        }
+      ];
+    };
+  };
+}
+```
+
+If you don't feel like adding the public key and substituter, then the module will still work, albeit the first run will compile the binary locally. Subsequent rebuilds will use the cache directly.
+
+If you want to avoid the hassle of compiling, you can add the public key and substituter like so to your first rebuild:
+
+```bash
+sudo nixos-rebuild boot --flake .#<hostname> \
+--option substituters "https://nix-cache.tokidoki.dev/mesa-git" \
+--option trusted-public-keys "mesa-git:QdQcgcLR80ALQIG0hR0YZaPbbdrBvHy7R+zwMjYWUyw="
+```
+
+Or you can build against the flake and accept its config:
+
+```bash
+nix build github:powerofthe69/portable-mesa-git-nix#mesa-git --accept-flake-config --no-link
+```
 
 All others can download the tarball from the releases page.
 
