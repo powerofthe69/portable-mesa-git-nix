@@ -1,8 +1,8 @@
 {
   "mesa": {
     "url": "https://gitlab.freedesktop.org/mesa/mesa.git",
-    "rev": "7b7432164093dcb61332fa06819edbc124bb5f97",
-    "sha256": "1av3xwaj7jc1vlbi750fnnk715g8mmcxfbj70vvsbqps7ms1a8wk"
+    "rev": "467dd0b990c1b305d48ec2269e8cee681b6840bb",
+    "sha256": "0jlk0ja03wws84757mpvkr7hqpxnaprkd6a8rhyyd5zsfzv4czqx"
   },
   "libdrm": {
     "url": "https://gitlab.freedesktop.org/mesa/drm.git",
