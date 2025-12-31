@@ -1,3 +1,7 @@
+# This repo is being archived in favor of a joint repo that I have stood up that includes Nix packages for mesa-git, proton-cachyos, vintage-story, and more. From this point forward, the only repos that I plan to actively maintain are the [proton-cachyos-nix repository](https://github.com/powerofthe69/proton-cachyos-nix) (as it has a small overhead), and the [nix-gaming-edge repository](https://github.com/powerofthe69/nix-gaming-edge) that will actively maintain a mesa-git module and any new packages moving forward.
+
+
+
 **NIXOS INSTALLATION:**
 
 In your `flake.nix`, add this input: `mesa-git.url = "github:powerofthe69/portable-mesa-git-nix";`
